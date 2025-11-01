@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>ZCC App Minimal (with localStorage)</title>
+    <script src="https://appssdk.zoom.us/sdk.js"></script>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 18px; }
+      .row { margin: 8px 0; }
+      textarea { width: 100%; min-height: 140px; }
+      .hint { opacity: 0.7; font-size: 0.9em; }
+      pre { background: #f6f8fa; padding: 8px; border-radius: 6px; overflow: auto; }
+      .choices { margin-top: 8px; }
+      .choices .group { margin: 8px 0; }
+      .choices label { margin-right: 10px; }
+    </style>
+  </head>
+
+  <body>
+    <h1>Zoom Contact Center</h1>
+
+    <div class="row"><strong>Running Context:</strong> <span id="running-context">—</span></div>
+    <div class="row"><strong>Engagement ID:</strong> <span id="engagement-id">—</span></div>
+    <div class="row"><strong>Status:</strong> <span id="engagement-status">—</span></div>
+
+    <div class="row">
+      <label for="notes-textarea"><strong>Notes (saved per engagement)</strong></label><br />
+      <textarea id="notes-textarea" placeholder="Type notes…"></textarea>
+      <div class="choices">
+        <div class="group">
+          <strong>Was the customer satisfied?</strong><br />
+          <label><input type="radio" name="q_satisfied" value="yes"> Yes</label>
+          <label><input type="radio" name="q_satisfied" value="no"> No</label>
+          <label><input type="radio" name="q_satisfied" value="unknown"> Unsure</label>
+        </div>
+        <div class="group">
+          <strong>Are they taking a survey?</strong><br />
+          <label><input type="radio" name="q_survey" value="yes"> Yes</label>
+          <label><input type="radio" name="q_survey" value="no"> No</label>
+          <label><input type="radio" name="q_survey" value="maybe"> Maybe</label>
+        </div>
+        <div class="group">
+          <strong>Is follow-up required?</strong><br />
+          <label><input type="radio" name="q_followup" value="yes"> Yes</label>
+          <label><input type="radio" name="q_followup" value="no"> No</label>
+          <label><input type="radio" name="q_followup" value="unknown"> Unsure</label>
+        </div>
+      </div>
+      <div class="hint">Notes and responses auto-save per engagement and clear when it ends.</div>
+    </div>
+    <br />
+    <hr />
+
+    <div class="row">
+      <strong>App Variables (allowed list):</strong>
+      <pre id="app-variables">—</pre>
+    </div>
+
+    <div class="row">
+      <strong>Engagement Variable Values:</strong>
+      <pre id="engagement-variables">—</pre>
+    </div>
+
+    <script>
+      (async () => {
+        /** ---------- Tiny DOM helpers ---------- */
+        const byId = (id) => document.getElementById(id);
+        const setTextContent = (id, value) => { byId(id).textContent = value; };
+        const setJSON = (id, obj) => { byId(id).textContent = (obj && Object.keys(obj).length) ? JSON.stringify(obj, null, 2) : "—"; };
+
+        /** Build localStorage keys for a given engagement */
+        const notesKeyForEngagement = (engagementId) => `zcc-notes:${engagementId}`;
+        const surveyKeyForEngagement = (engagementId) => `zcc-survey:${engagementId}`;
+        const logKeyForEngagement   = (engagementId) => `zcc-log:${engagementId}`;
+
+        /** Safe localStorage wrapper */
+        const storage = {
+          get(key) { try { return localStorage.getItem(key); } catch { return null; } },
+          set(key, value) { try { localStorage.setItem(key, value); } catch {} },
+          remove(key) { try { localStorage.removeItem(key); } catch {} },
+          getJSON(key, fallback) {
+            try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+          },
+          setJSON(key, obj) {
+            try { localStorage.setItem(key, JSON.stringify(obj)); } catch {}
+          }
+        };
+
+        /** Engagement activity logger (append-only array) */
+        function logEvent(engagementId, type, payload) {
+          if (!engagementId) return;
+          const key = logKeyForEngagement(engagementId);
+          const arr = storage.getJSON(key, []);
+          arr.push({ ts: new Date().toISOString(), type, payload: payload ?? {} });
+          storage.setJSON(key, arr);
+        }
+
+        if (typeof zoomSdk === "undefined") {
+          document.body.insertAdjacentHTML("beforeend", "<p class='hint'>zoomSdk not found.</p>");
+          return;
+        }
+
+        /** ---------- Configure SDK ---------- */
+        await zoomSdk.config({
+          version: "0.16.0",
+          capabilities: [
+            "getRunningContext",
+            "getEngagementContext",
+            "getEngagementStatus",
+            "getAppVariableList",
+            "getEngagementVariableValue",
+            "onEngagementContextChange",
+            "onEngagementStatusChange",
+            "onEngagementVariableValueChange"
+          ],
+        });
+
+        /** ---------- Initial values ---------- */
+        const runningContext = await zoomSdk.getRunningContext();
+        setTextContent(
+          "running-context",
+          typeof runningContext === "string" ? runningContext : JSON.stringify(runningContext)
+        );
+
+        let currentEngagementId = "";
+        let currentEngagementState = "";
+        let currentAppVariableNames = [];
+        let currentEngagementValues = {};
+
+        /** Helper: fetch app variable list and current values (UI only; no logging) */
+        async function loadVariablesUI() {
+          const appVarListResp = await zoomSdk.getAppVariableList().catch(() => null);
+          const variables = appVarListResp?.variables || [];
+          currentAppVariableNames = variables.map(v => v.name).filter(Boolean);
+          setJSON("app-variables", variables);
+
+          if (currentAppVariableNames.length) {
+            const varValuesResp = await zoomSdk.getEngagementVariableValue({
+              variableNames: currentAppVariableNames
+            }).catch(() => null);
+            const list = varValuesResp?.variables || [];
+            currentEngagementValues = {};
+            for (const item of list) currentEngagementValues[item.name] = item.value;
+            setJSON("engagement-variables", currentEngagementValues);
+          } else {
+            currentEngagementValues = {};
+            setJSON("engagement-variables", currentEngagementValues);
+          }
+        }
+
+        /** Load context + status and hydrate UI for the active engagement */
+        async function loadEngagementInfo() {
+          const [contextResponse, statusResponse] = await Promise.all([
+            zoomSdk.getEngagementContext().catch(() => null),
+            zoomSdk.getEngagementStatus().catch(() => null),
+          ]);
+
+          currentEngagementId = contextResponse?.engagementContext?.engagementId || "";
+          currentEngagementState = statusResponse?.engagementStatus?.state || "";
+
+          setTextContent("engagement-id", currentEngagementId || "—");
+          setTextContent("engagement-status", currentEngagementState || "—");
+
+          // Restore notes
+          byId("notes-textarea").value = currentEngagementId
+            ? (storage.get(notesKeyForEngagement(currentEngagementId)) || "")
+            : "";
+
+          // Restore survey selections
+          const savedSurvey = currentEngagementId ? storage.getJSON(surveyKeyForEngagement(currentEngagementId), {}) : {};
+          setRadio("q_satisfied", savedSurvey.q_satisfied);
+          setRadio("q_survey", savedSurvey.q_survey);
+          setRadio("q_followup", savedSurvey.q_followup);
+
+          // Log load (no variable data logged)
+          if (currentEngagementId) {
+            logEvent(currentEngagementId, "engagement_context_loaded", { state: currentEngagementState });
+          }
+
+          // Update UI with variables (display only)
+          await loadVariablesUI();
+        }
+
+        /** ---------- Notes auto-save (per engagement) ---------- */
+        byId("notes-textarea").addEventListener("input", (e) => {
+          if (!currentEngagementId) return;
+          const val = e.target.value;
+          storage.set(notesKeyForEngagement(currentEngagementId), val);
+          logEvent(currentEngagementId, "notes_updated", { length: val.length });
+        });
+
+        /** ---------- Survey radios (per engagement) ---------- */
+        function setRadio(name, value) {
+          if (!value) return;
+          const input = document.querySelector(`input[name="${name}"][value="${value}"]`);
+          if (input) input.checked = true;
+        }
+
+        function handleRadioChange(e) {
+          if (!currentEngagementId) return;
+          const name = e.target.name;
+          const value = e.target.value;
+          const key = surveyKeyForEngagement(currentEngagementId);
+          const current = storage.getJSON(key, {});
+          current[name] = value;
+          storage.setJSON(key, current);
+          logEvent(currentEngagementId, "survey_updated", { [name]: value });
+        }
+
+        document.querySelectorAll('input[name="q_satisfied"]').forEach(i => i.addEventListener("change", handleRadioChange));
+        document.querySelectorAll('input[name="q_survey"]').forEach(i => i.addEventListener("change", handleRadioChange));
+        document.querySelectorAll('input[name="q_followup"]').forEach(i => i.addEventListener("change", handleRadioChange));
+
+        /** ---------- Live updates from ZCC ---------- */
+        function handleEngagementContextChange(evt) {
+          const newId = evt?.engagementContext?.engagementId || "";
+          if (newId && newId !== currentEngagementId) {
+            logEvent(currentEngagementId, "engagement_switched", { to: newId });
+          }
+          currentEngagementId = newId;
+          setTextContent("engagement-id", currentEngagementId || "—");
+
+          // Restore per-engagement artifacts
+          byId("notes-textarea").value = currentEngagementId
+            ? (storage.get(notesKeyForEngagement(currentEngagementId)) || "")
+            : "";
+
+          const savedSurvey = currentEngagementId ? storage.getJSON(surveyKeyForEngagement(currentEngagementId), {}) : {};
+          setRadio("q_satisfied", savedSurvey.q_satisfied);
+          setRadio("q_survey", savedSurvey.q_survey);
+          setRadio("q_followup", savedSurvey.q_followup);
+
+          // Update UI variables (no logging)
+          loadVariablesUI();
+
+          logEvent(currentEngagementId, "engagement_context_changed", {});
+        }
+
+        function handleEngagementStatusChange(evt) {
+          currentEngagementState = evt?.engagementStatus?.state || "";
+          setTextContent("engagement-status", currentEngagementState || "—");
+
+          logEvent(currentEngagementId, "status_changed", { state: currentEngagementState });
+
+          // Clear saved data when engagement ends (keep the activity log)
+          if (currentEngagementState === "end" && currentEngagementId) {
+            storage.remove(notesKeyForEngagement(currentEngagementId));
+            storage.remove(surveyKeyForEngagement(currentEngagementId));
+            byId("notes-textarea").value = "";
+          }
+        }
+
+        function handleEngagementVariableValueChange(evt) {
+          // Update UI only; do not log variable data
+          if (evt?.variables?.length) {
+            const map = {};
+            for (const { name, value } of evt.variables) map[name] = value;
+            // Merge into current view map
+            currentEngagementValues = { ...currentEngagementValues, ...map };
+            setJSON("engagement-variables", currentEngagementValues);
+          }
+        }
+
+        zoomSdk.addEventListener("onEngagementContextChange", handleEngagementContextChange);
+        zoomSdk.addEventListener("onEngagementStatusChange", handleEngagementStatusChange);
+        zoomSdk.addEventListener("onEngagementVariableValueChange", handleEngagementVariableValueChange);
+
+        /** Kick off initial load */
+        await loadEngagementInfo();
+      })();
+    </script>
+
+   
+  </body>
+</html>
