@@ -1,44 +1,94 @@
 <!-- public/browser-version.html -->
+<!-- public/browser-version.html -->
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
-    <title>Zoom App – Browser Version</title>
+    <title>Zoom Contact Center App – Browser Version</title>
     <style>
+      :root {
+        --zoom-blue: #0e71eb;
+        --zoom-blue-dark: #0b5ec2;
+        --text-dark: #222;
+        --text-light: #555;
+        --bg-light: #f4f7fa;
+      }
+
       body {
-        font-family: Arial, sans-serif;
-        padding: 40px;
+        font-family: "Segoe UI", Arial, sans-serif;
+        background-color: var(--bg-light);
+        color: var(--text-dark);
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
         text-align: center;
-        background-color: #f9f9f9;
-        color: #333;
+      }
+
+      .container {
+        max-width: 600px;
+        padding: 40px 30px;
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
       }
 
       h1 {
-        font-size: 32px;
-        margin-bottom: 20px;
+        font-size: 30px;
+        font-weight: 600;
+        margin-bottom: 16px;
       }
 
       p {
-        font-size: 18px;
-        max-width: 600px;
-        margin: 0 auto 30px;
+        font-size: 16px;
+        line-height: 1.6;
+        color: var(--text-light);
+        margin-bottom: 20px;
       }
 
       .note {
         font-size: 14px;
-        color: #888;
+        color: #777;
+        margin-bottom: 25px;
+      }
+
+      #open-in-zoom {
+        background-color: var(--zoom-blue);
+        color: #fff;
+        border: none;
+        padding: 12px 28px;
+        font-size: 16px;
+        font-weight: 500;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      #open-in-zoom:hover {
+        background-color: var(--zoom-blue-dark);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 10px rgba(14, 113, 235, 0.25);
+      }
+
+      #open-in-zoom:active {
+        transform: translateY(0);
+        box-shadow: none;
       }
     </style>
   </head>
   <body>
-    <h1>Zoom Contact Center App</h1>
-    <p>This page is only a placeholder when viewed in a regular browser.</p>
-    <p>
-      To use this app, open it inside the Zoom client where it is fully
-      supported.
-    </p>
-    <p class="note">Click the button below to launch the app from Zoom.</p>
+    <div class="container">
+      <h1>Zoom Contact Center App</h1>
+      <p>
+        This page is a browser placeholder. To experience the full functionality,
+        open this app within the Zoom desktop client.
+      </p>
+      <p class="note">Click the button below to launch the app from Zoom.</p>
 
-    <button id="open-in-zoom" type="button">Open in Zoom</button>
+      <button id="open-in-zoom" type="button">Open in Zoom</button>
+    </div>
 
     <script>
       document.getElementById("open-in-zoom").addEventListener("click", () => {
@@ -47,3 +97,4 @@
     </script>
   </body>
 </html>
+
