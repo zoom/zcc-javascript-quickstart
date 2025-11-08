@@ -42,6 +42,7 @@ ZOOM_REDIRECT_URI=https://example.ngrok.app/auth/callback
 PORT=3000
 
 ```
+> :warning: **Do not store credentials in plain text on production environments**
 
 ## Getting Started
 
