@@ -1,3 +1,4 @@
+
 import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -31,19 +32,20 @@ app.use(
 );
 
 // ---------------------------------------------------------------------
-// COEP + COOP + CORP (all HTML must get CORP=cross-origin)
+// COEP + COOP — Required for Zoom PWA cross-origin isolation
 // ---------------------------------------------------------------------
 app.use((req, res, next) => {
   res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-
   next();
 });
 
-// Helmet + Zoom-safe CSP
+// ---------------------------------------------------------------------
+// Helmet — Provides HSTS, X-CTO, Referrer-Policy + secure CSP base
+// ---------------------------------------------------------------------
 app.use(
   helmet({
-    frameguard: false,
+    frameguard: false, // Allow embedding in Zoom iframe/PWA
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
@@ -75,7 +77,9 @@ app.use(
   })
 );
 
-// Static assets with CORP
+// ---------------------------------------------------------------------
+// CORP required on HTML entry points for COEP compatibility via ngrok
+// ---------------------------------------------------------------------
 app.use((req, res, next) => {
   if (req.path.endsWith(".html") || req.path === "/") {
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
@@ -83,12 +87,12 @@ app.use((req, res, next) => {
   next();
 });
 
+// Main app entry
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'zcc-apps.html'));
-  
+  res.sendFile(path.join(__dirname, 'public', 'zcc-apps.html'));
 });
 
-// OAuth start
+// OAuth Flow
 app.get('/auth/start', (req, res) => {
   const state = crypto.randomBytes(16).toString('hex');
   req.session.oauthState = state;
@@ -104,7 +108,6 @@ app.get('/auth/start', (req, res) => {
   res.redirect(authorize.toString());
 });
 
-// OAuth callback
 app.get('/auth/callback', async (req, res, next) => {
   try {
     const { code } = req.query;
@@ -130,8 +133,6 @@ app.get('/auth/callback', async (req, res, next) => {
   }
 });
 
-const server = http.createServer(app);
-
-server.listen(port, () => {
+http.createServer(app).listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
 });
