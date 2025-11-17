@@ -36,31 +36,28 @@ app.use(session({
   cookie: { secure: false } // set true when behind HTTPS + proxy
 }));
 
-app.use(helmet({
-  contentSecurityPolicy: {
-    useDefaults: true,
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: [
-        "'self'",
-        "'unsafe-inline'",
-        "https://appssdk.zoom.us",
-        "https://source.zoom.us",
-        "https://cdn.jsdelivr.net",     // ⬅️ allow jsDelivr (Chart.js CDN)
-        "https://cdn.ngrok.com"
-      ],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.ngrok.com"],
-      fontSrc:  ["'self'", "data:", "https://cdn.ngrok.com"],
-      imgSrc:   ["'self'", "data:", "blob:"],
-      connectSrc: [
-        "'self'", "wss:",
-        "https://zoom.us", "https://*.zoom.us",
-        "https://*.ngrok.app", "https://*.ngrok.io"
-      ],
-      frameAncestors: ["'self'", "https://*.zoom.us"],   // add this
+app.use(
+  helmet({
+    frameguard: false,
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        frameAncestors: [
+          "'self'",
+          "https://*.zoom.us",
+          "https://*.zoom.com",
+        ],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://appssdk.zoom.us",
+          "https://source.zoom.us",
+        ],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+      },
     },
-  },
-}));
+  })
+);
 
 
 // Default route: redirect based on user agent
