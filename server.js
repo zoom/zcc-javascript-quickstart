@@ -1,84 +1,94 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import helmet from 'helmet';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// OAuth imports
 import session from 'express-session';
 import crypto from 'crypto';
-
 import {
   exchangeCodeForAccessToken,
   createZoomDeeplink,
 } from "./lib/zoom-api.js";
+import http from 'http';
 
-// Load environment variables from a .env file
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = process.env.PORT || 3000;
-const execAsync = promisify(exec);
 
-// Middleware to parse JSON bodies in incoming requests
 app.use(express.json());
 
-// session (put near top, before routes)
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'dev-secret',
-  resave: false,
-  saveUninitialized: true,
-  cookie: { secure: false } // set true when behind HTTPS + proxy
-}));
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || 'dev-secret',
+    resave: false,
+    saveUninitialized: true,
+    cookie: { secure: false },
+  })
+);
 
-app.use(helmet({
-  contentSecurityPolicy: {
-    useDefaults: true,
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: [
-        "'self'",
-        "'unsafe-inline'",
-        "https://appssdk.zoom.us",
-        "https://source.zoom.us",
-        "https://cdn.jsdelivr.net",     // ⬅️ allow jsDelivr (Chart.js CDN)
-        "https://cdn.ngrok.com"
-      ],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.ngrok.com"],
-      fontSrc:  ["'self'", "data:", "https://cdn.ngrok.com"],
-      imgSrc:   ["'self'", "data:", "blob:"],
-      connectSrc: [
-        "'self'", "wss:",
-        "https://zoom.us", "https://*.zoom.us",
-        "https://*.ngrok.app", "https://*.ngrok.io"
-      ],
-      frameAncestors: ["'self'", "https://*.zoom.us"],   // add this
+// ---------------------------------------------------------------------
+// COEP + COOP + CORP (all HTML must get CORP=cross-origin)
+// ---------------------------------------------------------------------
+app.use((req, res, next) => {
+  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+
+  next();
+});
+
+// Helmet + Zoom-safe CSP
+app.use(
+  helmet({
+    frameguard: false,
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        frameAncestors: [
+          "'self'",
+          "https://*.zoom.us",
+          "https://*.zoom.com",
+        ],
+        defaultSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://appssdk.zoom.us",
+          "https://source.zoom.us",
+          "https://cdn.ngrok.com",
+        ],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.ngrok.com"],
+        fontSrc: ["'self'", "data:", "https://cdn.ngrok.com"],
+        connectSrc: [
+          "'self'",
+          "wss:",
+          "https://zoom.us",
+          "https://*.zoom.us",
+          "https://*.ngrok.app",
+          "https://*.ngrok.io",
+        ],
+      },
     },
-  },
-}));
+  })
+);
 
+// Static assets with CORP
+app.use((req, res, next) => {
+  if (req.path.endsWith(".html") || req.path === "/") {
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  }
+  next();
+});
 
-// Default route: redirect based on user agent
 app.get('/', (req, res) => {
-    const userAgent = req.get('User-Agent') || '';
+    res.sendFile(path.join(__dirname, 'public', 'zcc-apps.html'));
   
-    if (userAgent.includes('ZoomApps')) {
-      // Serve index.html for Zoom client
-      res.sendFile(path.join(__dirname, 'public', 'zoomapp-home.html'));
-    } else {
-      // Serve browser fallback page
-      res.sendFile(path.join(__dirname, 'public', 'browser.html'));
-    }
-  });
+});
 
-app.use(express.static(path.join(__dirname, "public")));
-
-// ---- OAuth start: redirect user to Zoom ----
+// OAuth start
 app.get('/auth/start', (req, res) => {
   const state = crypto.randomBytes(16).toString('hex');
   req.session.oauthState = state;
@@ -88,21 +98,17 @@ app.get('/auth/start', (req, res) => {
     response_type: 'code',
     client_id: process.env.ZOOM_CLIENT_ID,
     redirect_uri: process.env.ZOOM_REDIRECT_URI,
-    state
+    state,
   }).toString();
-
-  console.log("Redirecting to Zoom OAuth:", authorize.toString());
 
   res.redirect(authorize.toString());
 });
 
-// ---- OAuth callback: exchange code -> token, then create deeplink ----
+// OAuth callback
 app.get('/auth/callback', async (req, res, next) => {
   try {
-    const { code, state } = req.query;
-  
+    const { code } = req.query;
 
-    // 1)  Exchange code for token
     const token = await exchangeCodeForAccessToken({
       code,
       redirectUri: process.env.ZOOM_REDIRECT_URI,
@@ -110,28 +116,22 @@ app.get('/auth/callback', async (req, res, next) => {
       clientSecret: process.env.ZOOM_CLIENT_SECRET,
     });
 
-    // 2) Create deeplink (customize payload as needed)
-
     const deeplink = await createZoomDeeplink({
       accessToken: token.access_token,
       payload: {
-        action: "openApp", // free-form
-        type: 1,           // 1 = open in Zoom Client
-        // You can add fields like "target", etc., if your endpoint supports them.
+        action: "openApp",
+        type: 1,
       },
     });
 
-    // 3) Redirect the browser to Zoom deeplink (opens the client)
     return res.redirect(deeplink);
   } catch (e) {
     next(e);
   }
 });
 
-import http from 'http';
 const server = http.createServer(app);
 
 server.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
-   
+  console.log(`Server running at http://localhost:${port}`);
 });
