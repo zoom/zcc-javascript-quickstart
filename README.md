@@ -28,7 +28,7 @@ Please copy the https origin from the Ngrok terminal output and paste it in the 
 
 The Zoom Marketplace build flow for a Zoom App may be found [here](https://marketplace.zoom.us/develop/create). You will need a developer account with Zoom Apps enabled. You can create and then update an app using the zcc-app-manifest.json app manifest JSON object:
 
-* [Zoom Contact Center App Manifest JSON object](/zcc-app-manifest.json)
+* [Zoom Contact Center App Manifest JSON object](/app-manifest/zcc-app-manifest.json)
 
 ## Environment Variables
 
